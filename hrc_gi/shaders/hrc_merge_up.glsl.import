@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://dyjm1dw0romrs"
+path="res://.godot/imported/hrc_merge_up.glsl-e69591411305412ee761a62def4a181d.res"
+
+[deps]
+
+source_file="res://addons/hrc_gi/shaders/hrc_merge_up.glsl"
+dest_files=["res://.godot/imported/hrc_merge_up.glsl-e69591411305412ee761a62def4a181d.res"]
+
+[params]
+
