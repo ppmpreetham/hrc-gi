@@ -103,9 +103,9 @@ void main() {
     
     if ((px & 1) == 1) {
         // Odd x: use Eq. 14
-        // F± = Merge_r(A_{n+1}(j±) * Trace(p, q±), R_{n+1}(q±, j±))
+        // F+/- = Merge_r(A_{n+1}(j+/-) * Trace(p, q+/-), R_{n+1}(q+/-, j+/-))
         
-        // Get T_n approximation for the ray p->q±
+        // Get T_n approximation for the ray p->q+/-
         vec4 trace_plus  = sample_t(t_n, probe_pos, k_plus_t_n,  n, params.scene_width, params.scene_height);
         vec4 trace_minus = sample_t(t_n, probe_pos, k_minus_t_n, n, params.scene_width, params.scene_height);
         
@@ -113,7 +113,7 @@ void main() {
         float a_plus  = cone_angular_size(n + 1, float(j_plus_idx)  / 2.0 + 0.5);
         float a_minus = cone_angular_size(n + 1, float(j_minus_idx) / 2.0 + 0.5);
         
-        // Get R_{n+1} at q±
+        // Get R_{n+1} at q+/-
         vec4 r_plus  = vec4(0.0);
         vec4 r_minus = vec4(0.0);
         
@@ -134,15 +134,15 @@ void main() {
         
     } else {
         // Even x: use Eq. 15-17 to avoid center bias
-        // F± = (F0± + F1±) / 2
-        // F0± = R_{n+1}(p, j±)
-        // F1± = Merge_r(A_{n+1}(j±) * Trace(p, q±*2), R_{n+1}(q±*2, j±))
+        // F+/- = (F0+/- + F1+/-) / 2
+        // F0+/- = R_{n+1}(p, j+/-)
+        // F1+/- = Merge_r(A_{n+1}(j+/-) * Trace(p, q+/-*2), R_{n+1}(q+/-*2, j+/-))
         
-        // q for 2*v_n: q± * 2 relative to p
+        // q for 2*v_n: q+/- * 2 relative to p
         ivec2 q2_plus  = probe_pos + ivec2(step_n1, 2 * (2 * i_idx + 1) - step_n1);
         ivec2 q2_minus = probe_pos + ivec2(step_n1, 2 * (2 * i_idx)     - step_n1);
         
-        // F0 from R_{n+1}(p, j±) -- note p is even so it exists at n+1 cascade
+        // F0 from R_{n+1}(p, j+/-) -- note p is even so it exists at n+1 cascade
         vec4 f0_plus  = vec4(0.0);
         vec4 f0_minus = vec4(0.0);
         
