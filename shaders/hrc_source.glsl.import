@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://crorl8d14giuo"
+path="res://.godot/imported/hrc_source.glsl-addf8c8f80b098605a4a87c32ca8028d.res"
+
+[deps]
+
+source_file="res://addons/hrc_gi/shaders/hrc_source.glsl"
+dest_files=["res://.godot/imported/hrc_source.glsl-addf8c8f80b098605a4a87c32ca8028d.res"]
+
+[params]
+

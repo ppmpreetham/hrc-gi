@@ -1,0 +1,56 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" uid="uid://ciidtmyaqlagg" path="res://addons/hrc_gi/demo/hrc_demo.gd" id="1_demo"]
+[ext_resource type="Script" uid="uid://bpsmg3a4m2fy6" path="res://addons/hrc_gi/scripts/HRCGlobalIllumination.gd" id="2_gi"]
+[ext_resource type="Script" uid="uid://di8wfti5x0wju" path="res://addons/hrc_gi/scripts/HRCEmitter.gd" id="3_em"]
+[ext_resource type="Script" uid="uid://chqpu61je8q7y" path="res://addons/hrc_gi/scripts/HRCOccluder.gd" id="4_oc"]
+[ext_resource type="Script" uid="uid://bowgpvngpfwk1" path="res://addons/hrc_gi/scripts/HRCDisplay.gd" id="5_disp"]
+
+[node name="HRCDemo" type="Node2D"]
+script = ExtResource("1_demo")
+
+[node name="HRCGlobalIllumination" type="Node2D" parent="."]
+scale = Vector2(1.5, 1.5)
+script = ExtResource("2_gi")
+scene_size = Vector2i(512, 512)
+
+[node name="WarmLight" type="Node2D" parent="HRCGlobalIllumination"]
+position = Vector2(100, 256)
+script = ExtResource("3_em")
+emission_color = Color(1, 0.75, 0.4, 1)
+emission_strength = 6.0
+size = Vector2(24, 24)
+
+[node name="MouseLight" type="Node2D" parent="HRCGlobalIllumination"]
+position = Vector2(420, 110)
+script = ExtResource("3_em")
+emission_color = Color(0.35, 0.6, 1, 1)
+emission_strength = 6.0
+size = Vector2(14, 14)
+
+[node name="Wall" type="Node2D" parent="HRCGlobalIllumination"]
+position = Vector2(256, 220)
+script = ExtResource("4_oc")
+size = Vector2(12, 220)
+
+[node name="Box" type="Node2D" parent="HRCGlobalIllumination"]
+position = Vector2(380, 390)
+script = ExtResource("4_oc")
+size = Vector2(70, 40)
+
+[node name="Pillar" type="Node2D" parent="HRCGlobalIllumination"]
+position = Vector2(160, 150)
+script = ExtResource("4_oc")
+size = Vector2(20, 20)
+
+[node name="Glass" type="Node2D" parent="HRCGlobalIllumination"]
+position = Vector2(160, 380)
+script = ExtResource("4_oc")
+extinction = 0.02
+size = Vector2(60, 60)
+
+[node name="HRCDisplay" type="TextureRect" parent="."]
+offset_right = 768.0
+offset_bottom = 768.0
+script = ExtResource("5_disp")
+hrc_node = NodePath("../HRCGlobalIllumination")

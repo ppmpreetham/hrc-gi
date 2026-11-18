@@ -1,35 +1,62 @@
+@tool
 class_name HRCOccluder
 extends Node2D
-## Light occluder for HRC Global Illumination.
-## Add as a child of HRCGlobalIllumination to block light.
+## Rectangular light blocker. Must be a direct child of HRCGlobalIllumination.
+## Position/size are in the GI grid's pixels (the parent's local space). Rotation/scale are applied
+## as an axis-aligned bounding box.
 
-## Extinction coefficient (0.0 = transparent, 1.0+ = solid)
-@export_range(0.0, 10.0) var extinction: float = 10.0
-@export var size: Vector2 = Vector2(32, 32)
-@export var color: Color = Color(0.3, 0.3, 0.3, 1.0)
+## Attenuation per pixel: 0 = transparent, ~1 = translucent, 10 = solid.
+@export_range(0.0, 50.0, 0.01, "or_greater") var extinction := 10.0:
+	set(v):
+		extinction = v
+		_changed()
 
-func _ready() -> void:
-	queue_redraw()
+## Size in GI pixels.
+@export var size := Vector2(32, 32):
+	set(v):
+		size = v
+		_changed()
+
+## Surface reflectance, used when gi_bounces > 1.
+@export var albedo := Color(0.5, 0.5, 0.5):
+	set(v):
+		albedo = v
+		_changed()
+
+## Draw an outline of the occluder (always shown in the editor).
+@export var draw_debug := false:
+	set(v):
+		draw_debug = v
+		queue_redraw()
+
+
+func _init() -> void:
+	set_notify_local_transform(true)
+
+
+func _notification(what: int) -> void:
+	if what in [NOTIFICATION_LOCAL_TRANSFORM_CHANGED, NOTIFICATION_VISIBILITY_CHANGED,
+			NOTIFICATION_ENTER_TREE, NOTIFICATION_EXIT_TREE]:
+		_changed()
+
 
 func _draw() -> void:
+	if not (draw_debug or Engine.is_editor_hint()):
+		return
 	var rect := Rect2(-size / 2.0, size)
-	draw_rect(rect, Color(color.r, color.g, color.b, 0.7))
+	draw_rect(rect, Color(albedo, 0.6))
 	draw_rect(rect, Color(0.8, 0.8, 0.8), false, 1.0)
 
-func get_bake_rect() -> Rect2i:
-	var parent := get_parent()
-	if parent == null:
-		return Rect2i()
-	var local_pos := position
-	var half := size / 2.0
-	return Rect2i(
-		int(local_pos.x - half.x),
-		int(local_pos.y - half.y),
-		int(size.x),
-		int(size.y)
-	)
 
-func _process(_delta: float) -> void:
-	var parent := get_parent()
-	if parent and parent.get_script() and parent.get_script().get_global_name() == "HRCGlobalIllumination":
-		parent.mark_dirty()
+## Returns [Rect2i in GI pixels, Color(S.rgb, mu), Color(albedo.rgb, override flag)].
+func get_hrc_data() -> Array:
+	var r := transform * Rect2(-size / 2.0, size)
+	var rect := Rect2i(Vector2i(r.position.round()), Vector2i(r.size.round()))
+	return [rect, Color(0, 0, 0, extinction), Color(albedo.r, albedo.g, albedo.b, 1.0)]
+
+
+func _changed() -> void:
+	queue_redraw()
+	var p = get_parent()
+	if p != null and p.has_method("mark_dirty"):
+		p.mark_dirty()

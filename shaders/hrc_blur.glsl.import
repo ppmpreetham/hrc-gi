@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://b613tywefdiuv"
+path="res://.godot/imported/hrc_blur.glsl-da3a5b14b6e00bd2a8ff55a2a976ea35.res"
+
+[deps]
+
+source_file="res://addons/hrc_gi/shaders/hrc_blur.glsl"
+dest_files=["res://.godot/imported/hrc_blur.glsl-da3a5b14b6e00bd2a8ff55a2a976ea35.res"]
+
+[params]
+

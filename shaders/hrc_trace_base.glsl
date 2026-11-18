@@ -1,137 +1,100 @@
 #[compute]
 #version 450
 
-// HRC Base Trace Pass: directly ray-trace T_n for n=0,1,2
-// DDA to march through scene pixels and integrate radiance/transmittance
+// HRC base levels (paper Algorithm 1, first loop):
+//   for n in 0..2:  T_n(p, k) <- Trace(p, p + v_n(k)),  p = (x * 2^n, y),  k in 0..2^n
+// with v_n(k) = (2^n, 2k - 2^n).
+//
+// Trace integrates the radiance interval and transmittance (Eqs. 2-4) exactly for a medium that
+// is piecewise constant per pixel, using a DDA walk.
+//
+// Everything is done in "canonical" space, where the quadrant being solved faces +x.
+// T_n layout: texel (x * (2^n + 1) + k, y).
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-// RGB = emission color, A = extinction coefficient (0=empty, 1=solid)
-layout(set = 0, binding = 0) uniform sampler2D scene_tex;
-
-// Output T_n: RGB = accumulated radiance, A = transmittance
-layout(rgba16f, set = 0, binding = 1) uniform writeonly image2D t_out;
+layout(rgba16f, set = 0, binding = 0) uniform restrict readonly image2D src;   // S.rgb, mu (scene space)
+layout(rgba16f, set = 0, binding = 1) uniform restrict writeonly image2D t_out;
 
 layout(push_constant, std430) uniform Params {
-    int cascade_n;      // 0, 1, or 2
-    int scene_width;
-    int scene_height;
-    int directions;     // 2^n
-} params;
+	int n;
+	int quadrant;
+	int wc;  // canonical width
+	int hc;  // canonical height
+	int w;   // scene width
+	int h;   // scene height
+	int pad0;
+	int pad1;
+} pc;
 
-// DDA ray march from start to end pixel, accumulate radiance/transmittance
-// Returns vec4(radiance.rgb, transmittance)
-vec4 trace_ray(vec2 p_start, vec2 p_end, sampler2D scene) {
-    vec2 dir = p_end - p_start;
-    float dist = length(dir);
-    if (dist < 0.001) return vec4(0.0, 0.0, 0.0, 1.0);
-    
-    dir /= dist;
-    
-    // DDA setup
-    ivec2 cell = ivec2(floor(p_start));
-    ivec2 end_cell = ivec2(floor(p_end));
-    ivec2 step_sign = ivec2(sign(dir));
-    
-    vec2 t_delta = abs(vec2(1.0) / max(abs(dir), vec2(0.0001)));
-    vec2 t_max;
-    
-    // Initial t_max to first cell boundary
-    if (dir.x > 0.0) t_max.x = (float(cell.x + 1) - p_start.x) * t_delta.x;
-    else if (dir.x < 0.0) t_max.x = (p_start.x - float(cell.x)) * t_delta.x;
-    else t_max.x = 1e30;
-    
-    if (dir.y > 0.0) t_max.y = (float(cell.y + 1) - p_start.y) * t_delta.y;
-    else if (dir.y < 0.0) t_max.y = (p_start.y - float(cell.y)) * t_delta.y;
-    else t_max.y = 1e30;
-    
-    vec3 accum_radiance = vec3(0.0);
-    float accum_transmittance = 1.0;
-    float t_current = 0.0;
-    
-    int max_steps = int(dist) + 2;
-    
-    for (int i = 0; i < max_steps && i < 512; i++) {
-        if (cell.x < 0 || cell.x >= params.scene_width || 
-            cell.y < 0 || cell.y >= params.scene_height) break;
-        
-        float t_next = min(t_max.x, t_max.y);
-        t_next = min(t_next, dist);
-        
-        float seg_len = t_next - t_current;
-        if (seg_len <= 0.0) break;
-        
-        vec4 scene_val = texelFetch(scene, cell, 0);
-        vec3 emission = scene_val.rgb;
-        float extinction = scene_val.a;
-        
-        // Integrate: assuming uniform extinction and emission within pixel
-        // L_r(p <- q) integral solution
-        if (extinction > 0.0001) {
-            float optical_depth = extinction * seg_len;
-            float seg_transmittance = exp(-optical_depth);
-            
-            // Integrated emission contribution
-            vec3 seg_radiance = emission * (1.0 - seg_transmittance) / extinction;
-            
-            accum_radiance += accum_transmittance * seg_radiance;
-            accum_transmittance *= seg_transmittance;
-        }
-        
-        t_current = t_next;
-        if (t_current >= dist) break;
-        
-        // adv DDA
-        if (t_max.x < t_max.y) {
-            t_max.x += t_delta.x;
-            cell.x += step_sign.x;
-        } else {
-            t_max.y += t_delta.y;
-            cell.y += step_sign.y;
-        }
-        
-        if (cell == end_cell) break;
-    }
-    
-    return vec4(accum_radiance, accum_transmittance);
+ivec2 to_scene(ivec2 c) {
+	switch (pc.quadrant) {
+		case 0: return c;                              // +x
+		case 1: return ivec2(pc.w - 1 - c.x, c.y);     // -x
+		case 2: return c.yx;                           // +y
+		default: return ivec2(c.y, pc.h - 1 - c.x);    // -y
+	}
 }
 
-// v_n(k) offset vector: (2^n, 2k - 2^n)
-ivec2 v_n_int(int n, int k_times2) {
-    int step = 1 << n;
-    return ivec2(step, k_times2 - step);
+// Returns (radiance interval L(o <- o + d), transmittance T(o <- o + d)).
+vec4 trace(vec2 o, vec2 d) {
+	float len = length(d);
+	vec2 dir = d / len;
+	ivec2 cell = ivec2(floor(o));
+	ivec2 stp = ivec2(sign(dir));
+	vec2 t_delta = 1.0 / max(abs(dir), vec2(1e-8));
+	vec2 t_max;
+	t_max.x = dir.x > 0.0 ? (float(cell.x + 1) - o.x) * t_delta.x : (dir.x < 0.0 ? (o.x - float(cell.x)) * t_delta.x : 1e30);
+	t_max.y = dir.y > 0.0 ? (float(cell.y + 1) - o.y) * t_delta.y : (dir.y < 0.0 ? (o.y - float(cell.y)) * t_delta.y : 1e30);
+
+	vec3 L = vec3(0.0);
+	float T = 1.0;
+	float t = 0.0;
+
+	for (int i = 0; i < 64; i++) {
+		// Outside the scene is vacuum; rays leave monotonically so nothing more can contribute.
+		if (cell.x < 0 || cell.y < 0 || cell.x >= pc.wc || cell.y >= pc.hc) {
+			break;
+		}
+		float t_next = min(min(t_max.x, t_max.y), len);
+		float seg = t_next - t;
+		if (seg > 0.0) {
+			vec4 s = imageLoad(src, to_scene(cell));
+			if (s.a > 1e-6) {
+				float tr = exp(-s.a * seg);
+				L += T * s.rgb * (1.0 - tr) / s.a;
+				T *= tr;
+			} else {
+				L += T * s.rgb * seg;
+			}
+		}
+		t = t_next;
+		if (t >= len) {
+			break;
+		}
+		if (t_max.x < t_max.y) {
+			t_max.x += t_delta.x;
+			cell.x += stp.x;
+		} else {
+			t_max.y += t_delta.y;
+			cell.y += stp.y;
+		}
+	}
+	return vec4(L, T);
 }
 
 void main() {
-    ivec2 gid = ivec2(gl_GlobalInvocationID.xy);
-    int n = params.cascade_n;
-    int dirs = params.directions; // 2^n
-    int step = 1 << n;
-    int total_k = 2 * dirs + 1; // k*2 from 0 to 2*dirs (covers k=0.0 to k=dirs in 0.5 steps)
-    
-    // gid.x = px * total_k + k_idx
-    int k_idx = gid.x % total_k;
-    int px = gid.x / total_k;
-    int py = gid.y;
-    
-    int max_px = (params.scene_width + step - 1) / step;
-    if (px >= max_px || py >= params.scene_height) return;
-    
-    ivec2 probe_pos = ivec2(px * step, py);
-    
-    // offset v_n(k) where k = k_idx/2.0
-    // for integer k: straightforward
-    // for half-integer k: use actual direction
-    int vx = step;
-    int vy = k_idx - step; // = 2*(k_idx/2) - step when k_idx even, gives v_n(k)
-    // for k = k_idx/2.0: v = (2^n, 2*(k_idx/2.0) - 2^n) = (step, k_idx - step)
-    
-    vec2 ray_start = vec2(probe_pos) + vec2(0.5);
-    vec2 ray_end = ray_start + vec2(vx, vy);
-    
-    vec4 result = trace_ray(ray_start, ray_end, scene_tex);
-    
-    // texture layout: x = px, y = py + height * k_idx
-    ivec2 out_coord = ivec2(px, py + params.scene_height * k_idx);
-    imageStore(t_out, out_coord, result);
+	ivec2 g = ivec2(gl_GlobalInvocationID.xy);
+	int n = pc.n;
+	int K = 1 << n;
+	int num_px = (pc.wc + K - 1) >> n;
+	int x = g.x / (K + 1);
+	int k = g.x - x * (K + 1);
+	if (x >= num_px || g.y >= pc.hc) {
+		return;
+	}
+
+	ivec2 p = ivec2(x << n, g.y);
+	vec2 v = vec2(float(K), float(2 * k - K));
+	imageStore(t_out, g, trace(vec2(p) + 0.5, v));
 }

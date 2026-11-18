@@ -1,40 +1,48 @@
+@tool
 class_name HRCDisplay
 extends TextureRect
-## Displays HRC Global Illumination output.
-## Add as a sibling or child of your scene.
-## Connect HRCGlobalIllumination.gi_updated signal to update_gi.
+## Shows the output of an HRCGlobalIllumination node.
+## Set hrc_node; the rect is sized to scene_size so GI pixels map 1:1 unless you resize it.
 
-@export var hrc_node: NodePath
-@export_range(0.0, 2.0) var gi_intensity: float = 1.0
-@export_enum("Additive", "Multiply", "Replace") var blend_mode: int = 0
+## The HRCGlobalIllumination node to display.
+@export var hrc_node: NodePath:
+	set(v):
+		hrc_node = v
+		if is_inside_tree():
+			_bind()
 
-var _hrc: HRCGlobalIllumination
+## How the GI is blended over what is drawn behind it.
+@export_enum("Mix", "Add", "Multiply") var blend_mode: int = 0:
+	set(v):
+		blend_mode = v
+		_apply_blend()
+
 
 func _ready() -> void:
 	expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	stretch_mode = TextureRect.STRETCH_SCALE
-	
-	if not hrc_node.is_empty():
-		_hrc = get_node(hrc_node)
-		if _hrc:
-			_hrc.gi_updated.connect(update_gi)
-	
-	# Set up material for blending
-	var mat := ShaderMaterial.new()
-	mat.shader = load("res://addons/hrc_gi/shaders/hrc_composite.gdshader")
-	material = mat
-	
-	# Configure blend mode
-	match blend_mode:
-		0: # Additive
-			show_behind_parent = false
-			z_index = 100
-		1: # Multiply
-			show_behind_parent = false
-		2: # Replace
-			pass
+	_apply_blend()
+	_bind()
 
-func update_gi(new_texture: Texture2D) -> void:
-	texture = new_texture
-	if material is ShaderMaterial:
-		(material as ShaderMaterial).set_shader_parameter("gi_intensity", gi_intensity)
+
+func _bind() -> void:
+	if hrc_node.is_empty():
+		return
+	var hrc = get_node_or_null(hrc_node)
+	if hrc == null or not ("gi_texture" in hrc):
+		return
+	texture = hrc.gi_texture
+	if size == Vector2.ZERO:
+		size = Vector2(hrc.scene_size)
+
+
+func _apply_blend() -> void:
+	var mat := CanvasItemMaterial.new()
+	match blend_mode:
+		1:
+			mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+		2:
+			mat.blend_mode = CanvasItemMaterial.BLEND_MODE_MUL
+		_:
+			mat.blend_mode = CanvasItemMaterial.BLEND_MODE_MIX
+	material = mat
