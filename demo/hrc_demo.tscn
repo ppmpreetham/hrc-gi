@@ -13,6 +13,7 @@ script = ExtResource("1_demo")
 scale = Vector2(1.5, 1.5)
 script = ExtResource("2_gi")
 scene_size = Vector2i(512, 512)
+exposure = 0.4
 
 [node name="WarmLight" type="Node2D" parent="HRCGlobalIllumination"]
 position = Vector2(100, 256)
@@ -20,6 +21,7 @@ script = ExtResource("3_em")
 emission_color = Color(1, 0.75, 0.4, 1)
 emission_strength = 6.0
 size = Vector2(24, 24)
+shape = 1
 
 [node name="MouseLight" type="Node2D" parent="HRCGlobalIllumination"]
 position = Vector2(420, 110)
@@ -27,6 +29,7 @@ script = ExtResource("3_em")
 emission_color = Color(0.35, 0.6, 1, 1)
 emission_strength = 6.0
 size = Vector2(14, 14)
+shape = 1
 
 [node name="Wall" type="Node2D" parent="HRCGlobalIllumination"]
 position = Vector2(256, 220)
@@ -41,7 +44,8 @@ size = Vector2(70, 40)
 [node name="Pillar" type="Node2D" parent="HRCGlobalIllumination"]
 position = Vector2(160, 150)
 script = ExtResource("4_oc")
-size = Vector2(20, 20)
+size = Vector2(28, 28)
+shape = 1
 
 [node name="Glass" type="Node2D" parent="HRCGlobalIllumination"]
 position = Vector2(160, 380)

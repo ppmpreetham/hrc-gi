@@ -12,7 +12,7 @@
 //          F+-  = (F0+- + F1+-) / 2
 //   R_n(p, i) = F+ + F-
 // R_N is treated as 0 at the top level. At n = 0, R_0 is the fluence of this quadrant and is
-// accumulated straight into scene space.
+// written straight into this quadrant's scene-space accumulator.
 //
 // R_n layout: texel (x * 2^n + ii, y). T_n layout: texel (x * (2^n + 1) + k, y).
 
@@ -22,7 +22,7 @@ layout(rgba16f, set = 0, binding = 0) uniform restrict readonly image2D r_next; 
 layout(rgba16f, set = 0, binding = 1) uniform restrict readonly image2D t_cur;   // T_n
 layout(rgba16f, set = 0, binding = 2) uniform restrict readonly image2D t_next;  // T_{n+1}
 layout(rgba16f, set = 0, binding = 3) uniform restrict writeonly image2D r_out;  // R_n
-layout(rgba16f, set = 0, binding = 4) uniform restrict image2D accum;            // scene-space fluence sum
+layout(rgba16f, set = 0, binding = 4) uniform restrict writeonly image2D accum;  // this quadrant's fluence (scene space)
 
 layout(push_constant, std430) uniform Params {
 	int n;
@@ -122,11 +122,8 @@ void main() {
 	vec3 r = f_plus + f_minus;
 
 	if (n == 0) {
-		ivec2 s = to_scene(p);
-		if (pc.quadrant != 0) {
-			r += imageLoad(accum, s).rgb;
-		}
-		imageStore(accum, s, vec4(r, 1.0));
+		// Each quadrant has its own accumulator, so quadrants never wait on each other.
+		imageStore(accum, to_scene(p), vec4(r, 1.0));
 	} else {
 		imageStore(r_out, g, vec4(r, 1.0));
 	}

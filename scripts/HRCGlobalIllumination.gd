@@ -37,10 +37,35 @@ const _PRIM_STRIDE := 48
 		apply_cross_blur = v
 		mark_dirty()
 
+## How the shortest rays are built.
+## Paper: ray-trace cascades 0-2, as in the paper's Algorithm 1.
+## Fast: ray-trace only cascade 0 and build every longer ray by extension (as in Volumetric-HRC).
+## About the same accuracy and stability; up to ~35% faster on small scenes, less on large ones.
+@export_enum("Paper", "Fast") var ray_mode: int = 1:
+	set(v):
+		ray_mode = v
+		mark_dirty()
+
 ## Display scale. The output is fluence * exposure / (2*pi), i.e. the average incoming radiance.
 @export_range(0.0, 16.0, 0.01, "or_greater") var exposure := 1.0:
 	set(v):
 		exposure = v
+		mark_dirty()
+
+## Light in linear space and show the result gamma-correct (sRGB), as the reference
+## implementations do: inspector colours are converted to linear, the output is sRGB-encoded
+## (skipped automatically with HDR 2D, whose canvas is already linear).
+## Off: colours and output are used as raw values (darker, higher-contrast falloff; the v2.0 look).
+@export var gamma_correct := true:
+	set(v):
+		gamma_correct = v
+		mark_dirty()
+
+## Smooth (anti-aliased) edges for emitters and occluders, with sub-pixel positions so they
+## move smoothly. Off: shapes snap to whole GI pixels with hard, stepped edges.
+@export var anti_aliasing := true:
+	set(v):
+		anti_aliasing = v
 		mark_dirty()
 
 ## Recompute every frame instead of only when something changed.
@@ -53,12 +78,21 @@ const _PRIM_STRIDE := 48
 		if is_inside_tree():
 			_refresh_active()
 
+## Measure GPU time per phase (small overhead). Read the results with get_gpu_timings().
+@export var gpu_profiling := false:
+	set(v):
+		gpu_profiling = v
+		if _renderer != null:
+			_renderer.profile = v
+
 ## The computed GI output (RGBA16F, scene_size). Same object for the node's lifetime.
 var gi_texture := Texture2DRD.new()
 
 var _renderer = null  # HRCRenderer.gd (untyped so its methods resolve dynamically)
 var _active := false
 var _dirty := true
+var _force := true  # recompute even if the scene data is unchanged
+var _last_prims := PackedByteArray()
 var _size_changed := true
 var _custom_emit: Image
 var _custom_albedo: Image
@@ -84,6 +118,7 @@ func _process(_delta: float) -> void:
 		RenderingServer.call_on_render_thread(_renderer.setup.bind(scene_size))
 		_custom_dirty = true
 		_dirty = true
+		_force = true
 
 	if not (_dirty or continuous_update):
 		return
@@ -91,6 +126,11 @@ func _process(_delta: float) -> void:
 
 	var prims := PackedByteArray()
 	var count := _collect_prims(prims)
+	# Nodes re-assigning the same transform every frame must not trigger a recompute.
+	if not (_force or _custom_dirty or continuous_update) and prims == _last_prims:
+		return
+	_force = false
+	_last_prims = prims
 	var ce := PackedByteArray()
 	var ca := PackedByteArray()
 	if _custom_dirty:
@@ -98,13 +138,30 @@ func _process(_delta: float) -> void:
 		ce = _custom_emit.get_data()
 		ca = _custom_albedo.get_data()
 
+	# With HDR 2D the canvas is linear; otherwise the display texture must be sRGB-encoded.
+	var srgb_output := gamma_correct and not bool(ProjectSettings.get_setting("rendering/viewport/hdr_2d", false))
 	RenderingServer.call_on_render_thread(_renderer.compute.bind(
-			prims, count, ce, ca, gi_bounces, apply_cross_blur, exposure))
+			prims, count, ce, ca, gi_bounces, apply_cross_blur, exposure, 0 if ray_mode == 1 else 2,
+			srgb_output, anti_aliasing))
 	gi_updated.emit(gi_texture)
 
 
-## Request a recompute next frame (emitters/occluders call this when they change).
+## Force a recompute next frame.
 func mark_dirty() -> void:
+	_dirty = true
+	_force = true
+
+
+## GPU time in ms per phase of the most recent measured update (needs gpu_profiling = true and a
+## recompute every frame, e.g. continuous_update). Keys: bake, cascades, blur, total, copies.
+func get_gpu_timings() -> Dictionary:
+	if _renderer == null:
+		return {}
+	return _renderer.last_profile.duplicate()
+
+
+## Used by HRCEmitter / HRCOccluder when they change: recomputes only if the scene data really differs.
+func mark_scene_dirty() -> void:
 	_dirty = true
 
 
@@ -141,9 +198,11 @@ func _refresh_active() -> void:
 			return
 		_renderer = _Renderer.new()
 		_renderer.texture = gi_texture
+		_renderer.profile = gpu_profiling
 		_active = true
 		_size_changed = true
 		_dirty = true
+		_force = true
 	elif not want and _active:
 		_shutdown()
 
@@ -175,15 +234,17 @@ func _collect_prims(out: PackedByteArray) -> int:
 		if not (child is CanvasItem and child.visible and child.has_method("get_hrc_data")):
 			continue
 		var d: Array = child.get_hrc_data()
-		var rect: Rect2i = d[0]
+		var rect: Rect2 = d[0]
+		if not anti_aliasing:
+			rect = Rect2(rect.position.round(), rect.size.round())
 		var e: Color = d[1]
 		var a: Color = d[2]
 		var o := out.size()
 		out.resize(o + _PRIM_STRIDE)
-		out.encode_s32(o, rect.position.x)
-		out.encode_s32(o + 4, rect.position.y)
-		out.encode_s32(o + 8, rect.size.x)
-		out.encode_s32(o + 12, rect.size.y)
+		out.encode_float(o, rect.position.x)
+		out.encode_float(o + 4, rect.position.y)
+		out.encode_float(o + 8, rect.size.x)
+		out.encode_float(o + 12, rect.size.y)
 		out.encode_float(o + 16, e.r)
 		out.encode_float(o + 20, e.g)
 		out.encode_float(o + 24, e.b)

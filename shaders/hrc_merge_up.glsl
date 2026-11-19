@@ -1,7 +1,10 @@
 #[compute]
 #version 450
 
-// HRC acceleration structure (paper Sec. 4.1, Eqs. 18-20), computing T_n from T_{n-1} for n >= 3.
+// HRC acceleration structure (paper Sec. 4.1, Eqs. 18-20), computing T_n from T_{n-1}.
+// The paper ray-traces T_0..T_2 and extends from n = 3; in "fast" mode only T_0 is traced
+// (exact: its diagonal rays pass through pixel corners) and every level from n = 1 is extended,
+// as in Volumetric-HRC. Measured quality is about the same; up to ~35% faster on small scenes.
 // With m = n - 1 and k' in 0..2^n:
 //   k' = 2k even:  T_n(p, 2k) = Merge(T_m(p, k), T_m(p + v_m(k), k))                     (18)
 //   k' = 2k odd:   F-+ = Merge(T_m(p, k -+ 1/2), T_m(p + v_m(k -+ 1/2), k +- 1/2))        (19)

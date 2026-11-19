@@ -21,6 +21,10 @@ extends TextureRect
 func _ready() -> void:
 	expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	stretch_mode = TextureRect.STRETCH_SCALE
+	# Light is smooth: filter it linearly even in pixel-art projects that default to Nearest
+	# (unless a filter was chosen on this node).
+	if texture_filter == CanvasItem.TEXTURE_FILTER_PARENT_NODE:
+		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	_apply_blend()
 	_bind()
 
